@@ -1,0 +1,203 @@
+from numpy import append
+from selenium import webdriver #브라우저 조작,컨트롤 크롬브라우저를 사용
+from bs4 import BeautifulSoup
+from selenium.webdriver.common.by import By
+import time
+from selenium.webdriver.common.keys import Keys
+import pandas as pd
+import urllib
+
+browser = webdriver.Chrome()
+url = "https://coloso.co.kr/event/category_mediadesign"
+browser.get(url)
+time.sleep(2)
+
+html= browser.page_source
+soup = BeautifulSoup(html, 'html.parser')
+time.sleep(2)
+
+#전체섹션 찾기 
+li_list = soup.select('li.container__card')
+print(len(li_list))
+
+result = [ ] # 전체 내용 담을 리스트
+count = 0
+
+for section in li_list :
+
+    #다시 시작페이지에서
+    html= browser.page_source
+    soup = BeautifulSoup(html, 'html.parser')
+
+    #강의 이미지 url
+    program_img = section.select('img')[0]['src']
+    #강의 이미지 다운로드
+    urllib.request.urlretrieve(program_img, str(count) + '.jpg')
+    count += 1
+    
+    #강의 이름찾기
+    program_title = section.select('.card__title.text--h6')[0].text
+    #강사 이름찾기
+    instructor_name = section.select('div.card__content.text--content1')[0].text 
+    #플렛폼 클래스 
+    platform_class = "coloso"
+    #영상(디자인) 재태크 5번
+    catagory = "5"
+    
+    #강의url 찾기
+    program_link = section.select('a')[0]['href']
+    if program_link[:8] != 'https://':
+        program_link = section.select('a')[0]['href']
+        program_link = 'https://coloso.co.kr' + program_link
+    else:
+         program_link
+    
+    #print(program_img, program_title, instructor_name, platform_class, catagory,program_link, sep ="/")
+
+    #가격페이지로 이동 
+    browser.get(program_link)
+
+    #다시 내용 크롤링 ->  soup1으로 내용 복사
+    html= browser.page_source
+    soup1 = BeautifulSoup(html, 'html.parser')
+    #가격 확인 
+    program_price = soup1.select('i')[0].text[:7].replace(',','')
+    
+    #전체 내용 확인
+    print(program_img, program_title, instructor_name, platform_class, catagory,program_link ,program_price, sep ="/")
+    
+    data = [program_img, program_title, instructor_name, platform_class, catagory,program_link ,program_price]
+    # result에 리스트형식으로 저장
+    result.append(data)
+#     time.sleep(1)
+
+df = pd.DataFrame(result)
+df
+
+df.to_csv('./coloso_mediadesign.csv', index = False)
+
+
+
+import os
+import glob
+import json
+import time
+import PIL
+from PIL import Image
+import pandas as pd    # 판다스 : 데이터분석 라이브러리
+import numpy as np 
+import urllib.request
+import requests
+from requests.adapters import HTTPAdapter
+from numpyencoder import NumpyEncoder
+
+load = pd.read_csv("coloso_mediadesign.csv")
+num_list = len(load) 
+number = num_list 
+num_list
+
+load['content'] = load['program_title']
+program_content = '[Coloso] ' + load.content
+
+program_title = load.program_title
+instructor_names = load.instructor_names
+platform_class = load.platform_class
+program_link = load.program_link
+price = load.price
+price = price.astype('string') #int -> string
+platform_class = load.platform_class
+content = program_content
+
+files = glob.glob('./*.jpg')
+
+s = requests.Session()
+s.mount('http://demo-703234072.ap-northeast-2.elb.amazonaws.com', HTTPAdapter(max_retries=5))
+
+#이미지 크기조절
+for i in files:
+    img = Image.open(i)
+    img_resize = img.resize((int(img.width / 2),
+int(img.height / 2)))
+    title, ext = os.path.splitext(i)
+    im = img_resize.convert("RGB")
+    im.save(title + '_half' + ext)
+
+#로그인 주소 및 아이디
+loginUrl = 'http://demo-703234072.ap-northeast-2.elb.amazonaws.com/api/login'
+payload = {"email":"chocho@gmail.com" ,"password":"123123123"} # db에서 admin으로 수정 
+
+
+r = requests.post(
+    loginUrl, data=json.dumps(payload),
+    headers={'Content-Type': 'application/json'})
+
+token = json.loads(json.dumps(r.json()))['token']
+
+print(token)
+
+imageUrl = 'http://demo-703234072.ap-northeast-2.elb.amazonaws.com/api/uploadThumbNail'
+createUrl = 'http://demo-703234072.ap-northeast-2.elb.amazonaws.com/api/uploadLecture'    
+subUrl = 'http://demo-703234072.ap-northeast-2.elb.amazonaws.com/api/uploadSubCategory'
+
+id_list = []
+
+for i in range(len(load)):
+    
+        file_name = str(i) + '_half.jpg'
+
+        with open(file_name, 'rb') as img:
+            name_img= os.path.basename(file_name)
+            files= {'upload': (name_img,img,'multipart/form-data')}
+            headers = {'Accept': '*/*','Authorization': 'Bearer ' + token}
+
+            with requests.Session() as s:
+                r = s.post(imageUrl,files=files,headers=headers,verify=False)
+                print(r)
+                print(r.json())
+                id = json.loads(json.dumps(r.json()))['id']
+                print(id)
+                idlist = id
+                id_list.append(idlist)
+                time.sleep(2)
+            
+        i = i + 1
+
+dict_list = []
+
+for i in range(len(load)):
+    dict_list.append({'name':program_title[i],  #강의 이름
+    'instructor_name':instructor_names[i], #강사이름
+    'content':content[i],  # 
+    'category_id':6, #카테고리     
+    'file_id':id_list[i],
+    'platform_name': [platform_class[i]], # coloso 
+    'price': [price[i]], #가격
+    'url': [program_link[i]],  #강의 url
+    'watch_time': [0]})
+    
+    
+print(dict_list) 
+
+for i in files:
+        with open("dict_list.json", "w", encoding='UTF-8-sig') as f:
+
+            json.dump(dict_list,f,indent=4,ensure_ascii=False, cls= NumpyEncoder)
+ 
+        with open('dict_list.json', 'rt',encoding= "UTF-8-sig") as s:
+            headers = {'Accept': '*/*','Content-Type': 'application/json','Authorization': 'Bearer ' + token}
+            print(token)
+            datas1 = json.load(s)
+            
+            for n in datas1:
+                datas = n
+                print(datas)
+                    
+                with requests.Session() as s: 
+                    r = s.post(createUrl,json = datas, headers=headers,verify=False)
+                    print(r)
+                    print(r.json())
+                    id = json.loads(json.dumps(r.json()))['id']
+                    print(id)
+                    time.sleep(3)
+                    
+time.sleep(10)
